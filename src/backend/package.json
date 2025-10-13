@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "description": "VisiControl Backend con CI/CD y automatización",
   "main": "dist/server.js",
-  "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
@@ -45,3 +44,4 @@
     "typescript": "^5.9.3"
   }
 }
+
