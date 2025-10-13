@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS visits (
+  id SERIAL PRIMARY KEY,
+  visitor_id INTEGER NOT NULL,
+  inmate_id INTEGER NOT NULL,
+  date TIMESTAMP NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'PENDING'
+);
+CREATE INDEX IF NOT EXISTS idx_visits_date ON visits(date);
