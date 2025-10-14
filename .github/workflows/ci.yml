@@ -10,28 +10,99 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+
+    # Service: PostgreSQL efímero para el job
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: visictrl_admin
+          POSTGRES_PASSWORD: Tigrillo0720
+          POSTGRES_DB: visicontrol
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U visictrl_admin -d visicontrol"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
     defaults:
       run:
         working-directory: src/backend
+
+    env:
+      # Vars que tu backend espera
+      NODE_ENV: test
+      PORT: 4000
+
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGDATABASE: visicontrol
+      PGUSER: visictrl_admin
+      PGPASSWORD: Tigrillo0720
+
+      JWT_SECRET: supersecret
+      JWT_EXPIRES_IN: 1d
+      CORS_ORIGIN: "*"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Opción A (rápida – sin cache). Si quieres cache, cambia este bloque por la Opción B de arriba.
-      - name: Setup Node
+      - name: Setup Node (sin cache para evitar errores)
         uses: actions/setup-node@v4
         with:
-          node-version: '22.x'
+          node-version: '20.19.0'  # estable para TS/ESLint; si quieres 22.x, cámbialo luego
 
-      - name: Debug tree (ayuda si vuelve a fallar)
+      - name: Install tools (psql + jq)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client jq
+
+      - name: Debug tree (por si algo falla)
         run: |
           pwd
           ls -la
-          ls -la src/backend || true
+          ls -la sql || true
+          ls -la src || true
 
       - name: Install deps
         run: npm ci --include=dev
+
+      # Esperar a que el Postgres del service esté listo
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            if psql "postgresql://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$PGDATABASE" -c "select 1" >/dev/null 2>&1; then
+              echo "Postgres ready"; break
+            fi
+            echo "Waiting for Postgres... ($i)"
+            sleep 2
+          done
+
+      # Aplicar schemas (ajusta las rutas si tu carpeta no es src/backend/sql)
+      - name: Apply DB schemas
+        run: |
+          psql "postgresql://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$PGDATABASE" -f sql/schema_users.sql
+          psql "postgresql://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$PGDATABASE" -f sql/schema_visits.sql
+
+      # Seed admin (mismo hash que usaste en local)
+      - name: Seed admin user
+        run: |
+          HASH='$2b$10$MSqt1pmN7e04QRVX2Gn7D0C8lNgMBSBjdQ2oXouMBTDrwUewfENh6'
+          psql "postgresql://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$PGDATABASE" -v ON_ERROR_STOP=1 -c "
+            INSERT INTO users (name, email, password_hash, role)
+            VALUES ('Administrador','admin@visicontrol.dev', '$HASH','ADMIN')
+            ON CONFLICT (email) DO UPDATE
+              SET password_hash = EXCLUDED.password_hash,
+                  name = EXCLUDED.name,
+                  role = EXCLUDED.role;
+          "
+          # sanity check
+          psql "postgresql://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$PGDATABASE" -c "
+            SELECT email, role, length(password_hash) AS len_hash FROM users WHERE email='admin@visicontrol.dev';
+          "
 
       - name: Typecheck
         run: npm run typecheck
@@ -42,12 +113,30 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Start server (bg)
+        run: |
+          node dist/server.js &
+          echo $! > /tmp/server.pid
+          sleep 2
+
       - name: Smoke test (health)
         run: |
-          chmod +x ./scripts/smoke.sh
-          node dist/server.js &
-          SERVER_PID=$!
-          sleep 2
-          bash ./scripts/smoke.sh
-          kill $SERVER_PID
+          # Hacer ping a /api/health
+          HTTP_CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" "http://localhost:${PORT}/api/health")
+          echo "HTTP: $HTTP_CODE"
+          cat /tmp/health.json || true
+          echo
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Smoke FAIL: http $HTTP_CODE"; exit 1
+          fi
+          OK=$(jq -r '.ok' /tmp/health.json || echo "false")
+          if [ "$OK" != "true" ]; then
+            echo "Smoke FAIL: body not ok"; exit 1
+          fi
+          echo "Smoke OK"
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f /tmp/server.pid ]; then kill $(cat /tmp/server.pid) || true; fi
 
