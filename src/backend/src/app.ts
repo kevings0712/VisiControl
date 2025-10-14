@@ -16,3 +16,4 @@ app.use('/api/auth', authRoutes);
 app.use('/api/visits', visitsRoutes);                
 
 export default app;
+console.log('Test CI Render ok');
