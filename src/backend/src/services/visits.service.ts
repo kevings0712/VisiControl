@@ -9,10 +9,9 @@ export type CreateVisitDTO = {
   visit_date: string;            // YYYY-MM-DD
   visit_hour: string;            // HH:mm[:ss]
   notes?: string | null;
-  created_by?: string | null;    // <-- ya debe existir
-  skip_auth?: boolean;           // <-- NUEVO (para ADMIN)
+  created_by?: string | null;    // quién creó la visita
+  skip_auth?: boolean;           // ← permite al ADMIN saltar la validación de autorización
 };
-
 
 // ---- Helpers ----
 function buildVisitMeta(v: {
@@ -37,7 +36,6 @@ function buildVisitMeta(v: {
 
 async function getInmateDisplayNameById(inmateId: string): Promise<string | null> {
   const db = getPool();
-  // Usa full_name si la tienes; si no, compón con first_name + last_name
   const q = `
     SELECT COALESCE(full_name, trim(coalesce(first_name,'') || ' ' || coalesce(last_name,''))) AS name
       FROM inmates
@@ -68,8 +66,8 @@ export async function createVisit(dto: CreateVisitDTO) {
     inmateName = (await getInmateDisplayNameById(dto.inmate_id)) ?? "";
   }
 
-  // 2) (Opcional) Validar que el creador esté autorizado al interno
-  if (dto.created_by && dto.inmate_id) {
+  // 2) Validar autorización SOLO si no es ADMIN (skip_auth=false)
+  if (!dto.skip_auth && dto.created_by && dto.inmate_id) {
     await assertUserAuthorizedToInmate(dto.created_by, dto.inmate_id);
   }
 
@@ -90,18 +88,15 @@ export async function createVisit(dto: CreateVisitDTO) {
 
   const v = rows[0];
 
-  // 🔔 Notificación: VISIT_CREATED (pendiente)
+  // 🔔 Notificación: VISIT_CREATED
   try {
     if (v?.created_by) {
-      const dateStr = String(v.visit_date);
-      const hourStr = String(v.visit_hour);
-
       await createNotification({
         user_id: v.created_by,
         visit_id: v.id,
         kind: "VISIT_CREATED",
         title: "Visita registrada",
-        body: `Tu visita fue registrada para el ${dateStr} a las ${hourStr}. Estado: ${v.status ?? "PENDING"}.`,
+        body: `Tu visita fue registrada para el ${String(v.visit_date)} a las ${String(v.visit_hour)}. Estado: ${v.status ?? "PENDING"}.`,
         meta: buildVisitMeta({
           id: v.id,
           visitor_name: v.visitor_name,
@@ -120,13 +115,18 @@ export async function createVisit(dto: CreateVisitDTO) {
   return v;
 }
 
-export async function listVisits(params: { date?: string; status?: string }) {
+export async function listVisits(params: {
+  date?: string;
+  status?: string;
+  created_by?: string;  // ← NUEVO: permite filtrar por dueño
+}) {
   const db = getPool();
   const wh: string[] = [];
   const vals: any[] = [];
 
-  if (params.date)   { wh.push(`visit_date = $${vals.length + 1}`); vals.push(params.date); }
-  if (params.status) { wh.push(`status = $${vals.length + 1}`);     vals.push(params.status); }
+  if (params.date)      { wh.push(`visit_date = $${vals.length + 1}`); vals.push(params.date); }
+  if (params.status)    { wh.push(`status = $${vals.length + 1}`);     vals.push(params.status); }
+  if (params.created_by){ wh.push(`created_by = $${vals.length + 1}`); vals.push(params.created_by); }
 
   const where = wh.length ? `WHERE ${wh.join(" AND ")}` : "";
   const q = `SELECT * FROM visits ${where} ORDER BY visit_date DESC, visit_hour DESC LIMIT 200`;
@@ -139,7 +139,7 @@ export async function updateVisit(
   data: {
     visitor_name: string;
     inmate_name?: string;          // opcional si llega inmate_id
-    inmate_id?: string | null;     // <<--- NUEVO (opcional)
+    inmate_id?: string | null;     // opcional
     visit_date: string;            // YYYY-MM-DD
     visit_hour: string;            // HH:mm[:ss]
     status: string;                // PENDING | APPROVED | REJECTED
@@ -180,7 +180,7 @@ export async function updateVisit(
     newInmateName = (await getInmateDisplayNameById(data.inmate_id)) ?? prev?.inmate_name ?? "";
   }
 
-  // (Opcional) Validar autorización si cambia o se fija inmate_id
+  // (Opcional) Validar autorización si cambia/fija inmate_id
   if (owner && data.inmate_id && data.inmate_id !== oldInmateId) {
     await assertUserAuthorizedToInmate(owner, data.inmate_id);
   }
