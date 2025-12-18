@@ -1,28 +1,90 @@
-// src/frontend/src/api/client.ts
-const BASE = import.meta.env.VITE_API_BASE as string;
+// src/frontend/src/api/visits.ts
+import api from "./client";
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = localStorage.getItem('token');
+export type VisitStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED" | string;
 
-  const res = await fetch(`${BASE}/api${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {}),
-    },
-  });
+export type Visit = {
+  id: string;
+  visitor_name: string;
+  inmate_name: string;
+  visit_date: string;   // YYYY-MM-DD
+  visit_hour: string;   // HH:mm[:ss]
+  status: VisitStatus;
+  notes?: string | null;
+  created_at?: string;
+  inmate_id?: string | null;
+};
 
-  if (!res.ok) {
-    const msg = await res.text().catch(() => res.statusText);
-    throw new Error(msg || `HTTP ${res.status}`);
-  }
+export type VisitListResp = {
+  ok: boolean;
+  visits?: Visit[]; // lo que devuelve getVisits
+  items?: Visit[];  // lo que devuelve adminList
+  pagination?: { total: number; page: number; limit: number };
+};
 
-  return res.json() as Promise<T>;
+/* ================= USUARIO NORMAL ================= */
+
+export function listMyVisits(params?: { date?: string; status?: string }) {
+  const qs = new URLSearchParams();
+  if (params?.date) qs.set("date", params.date);
+  if (params?.status) qs.set("status", params.status);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return api.get<VisitListResp>(`/visits${suffix}`);
 }
 
-export default {
-  get:  <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: 'POST', body: JSON.stringify(body ?? {}) }),
-};
+export function listMyVisitHistory(params?: { date?: string; status?: string }) {
+  const qs = new URLSearchParams();
+  if (params?.date) qs.set("date", params.date);
+  if (params?.status) qs.set("status", params.status);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return api.get<VisitListResp>(`/visits/history${suffix}`);
+}
+
+export function createVisit(payload: {
+  inmate_id: string;
+  visit_date: string;
+  visit_hour: string;
+  notes?: string | null;
+  visitor_name?: string;
+}) {
+  return api.post<{ ok: boolean; visit: Visit }>("/visits", payload);
+}
+
+export function updateMyVisit(
+  id: string,
+  payload: { visit_date?: string; visit_hour?: string; notes?: string | null }
+) {
+  return api.put<{ ok: boolean; visit: Visit }>(`/visits/${id}`, payload);
+}
+
+export function deleteMyVisit(id: string) {
+  return api.del<{ ok: boolean }>(`/visits/${id}`);
+}
+
+/* =================== ADMIN =================== */
+
+export function adminListVisits(params?: {
+  q?: string;
+  status?: string;
+  page?: number;
+  limit?: number;
+}) {
+  const qs = new URLSearchParams();
+  if (params?.q) qs.set("q", params.q);
+  if (params?.status) qs.set("status", params.status);
+  if (params?.page) qs.set("page", String(params.page));
+  if (params?.limit) qs.set("limit", String(params.limit));
+
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return api.get<{
+    ok: boolean;
+    items: Visit[];
+    pagination: { total: number; page: number; limit: number };
+  }>(`/visits/admin${suffix}`);
+}
+
+export function adminChangeVisitStatus(id: string, status: VisitStatus) {
+  return api.patch<{ ok: boolean; item: Visit }>(`/visits/admin/${id}`, {
+    status,
+  });
+}

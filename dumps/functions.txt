@@ -1,0 +1,75 @@
+ schema |                 function                  |                                   args                                    | returns  
+--------+-------------------------------------------+---------------------------------------------------------------------------+----------
+ public | armor                                     | bytea                                                                     | text
+ public | armor                                     | bytea, text[], text[]                                                     | text
+ public | crypt                                     | text, text                                                                | text
+ public | dearmor                                   | text                                                                      | bytea
+ public | decrypt                                   | bytea, bytea, text                                                        | bytea
+ public | decrypt_iv                                | bytea, bytea, bytea, text                                                 | bytea
+ public | digest                                    | text, text                                                                | bytea
+ public | digest                                    | bytea, text                                                               | bytea
+ public | encrypt                                   | bytea, bytea, text                                                        | bytea
+ public | encrypt_iv                                | bytea, bytea, bytea, text                                                 | bytea
+ public | enforce_visit_assignment                  |                                                                           | trigger
+ public | gen_random_bytes                          | integer                                                                   | bytea
+ public | gen_random_uuid                           |                                                                           | uuid
+ public | gen_salt                                  | text, integer                                                             | text
+ public | gen_salt                                  | text                                                                      | text
+ public | gin_extract_query_trgm                    | text, internal, smallint, internal, internal, internal, internal          | internal
+ public | gin_extract_value_trgm                    | text, internal                                                            | internal
+ public | gin_trgm_consistent                       | internal, smallint, text, integer, internal, internal, internal, internal | bool
+ public | gin_trgm_triconsistent                    | internal, smallint, text, integer, internal, internal, internal           | char
+ public | gtrgm_compress                            | internal                                                                  | internal
+ public | gtrgm_consistent                          | internal, text, smallint, oid, internal                                   | bool
+ public | gtrgm_decompress                          | internal                                                                  | internal
+ public | gtrgm_distance                            | internal, text, smallint, oid, internal                                   | float8
+ public | gtrgm_in                                  | cstring                                                                   | gtrgm
+ public | gtrgm_options                             | internal                                                                  | void
+ public | gtrgm_out                                 | gtrgm                                                                     | cstring
+ public | gtrgm_penalty                             | internal, internal, internal                                              | internal
+ public | gtrgm_picksplit                           | internal, internal                                                        | internal
+ public | gtrgm_same                                | gtrgm, gtrgm, internal                                                    | internal
+ public | gtrgm_union                               | internal, internal                                                        | gtrgm
+ public | hmac                                      | text, text, text                                                          | bytea
+ public | hmac                                      | bytea, bytea, text                                                        | bytea
+ public | pgp_armor_headers                         | text, OUT key text, OUT value text                                        | record
+ public | pgp_key_id                                | bytea                                                                     | text
+ public | pgp_pub_decrypt                           | bytea, bytea                                                              | text
+ public | pgp_pub_decrypt                           | bytea, bytea, text, text                                                  | text
+ public | pgp_pub_decrypt                           | bytea, bytea, text                                                        | text
+ public | pgp_pub_decrypt_bytea                     | bytea, bytea, text                                                        | bytea
+ public | pgp_pub_decrypt_bytea                     | bytea, bytea                                                              | bytea
+ public | pgp_pub_decrypt_bytea                     | bytea, bytea, text, text                                                  | bytea
+ public | pgp_pub_encrypt                           | text, bytea, text                                                         | bytea
+ public | pgp_pub_encrypt                           | text, bytea                                                               | bytea
+ public | pgp_pub_encrypt_bytea                     | bytea, bytea                                                              | bytea
+ public | pgp_pub_encrypt_bytea                     | bytea, bytea, text                                                        | bytea
+ public | pgp_sym_decrypt                           | bytea, text                                                               | text
+ public | pgp_sym_decrypt                           | bytea, text, text                                                         | text
+ public | pgp_sym_decrypt_bytea                     | bytea, text                                                               | bytea
+ public | pgp_sym_decrypt_bytea                     | bytea, text, text                                                         | bytea
+ public | pgp_sym_encrypt                           | text, text                                                                | bytea
+ public | pgp_sym_encrypt                           | text, text, text                                                          | bytea
+ public | pgp_sym_encrypt_bytea                     | bytea, text, text                                                         | bytea
+ public | pgp_sym_encrypt_bytea                     | bytea, text                                                               | bytea
+ public | set_limit                                 | real                                                                      | float4
+ public | set_updated_at                            |                                                                           | trigger
+ public | set_updated_at_inmates                    |                                                                           | trigger
+ public | set_visit_short_code                      |                                                                           | trigger
+ public | show_limit                                |                                                                           | float4
+ public | show_trgm                                 | text                                                                      | _text
+ public | similarity                                | text, text                                                                | float4
+ public | similarity_dist                           | text, text                                                                | float4
+ public | similarity_op                             | text, text                                                                | bool
+ public | strict_word_similarity                    | text, text                                                                | float4
+ public | strict_word_similarity_commutator_op      | text, text                                                                | bool
+ public | strict_word_similarity_dist_commutator_op | text, text                                                                | float4
+ public | strict_word_similarity_dist_op            | text, text                                                                | float4
+ public | strict_word_similarity_op                 | text, text                                                                | bool
+ public | word_similarity                           | text, text                                                                | float4
+ public | word_similarity_commutator_op             | text, text                                                                | bool
+ public | word_similarity_dist_commutator_op        | text, text                                                                | float4
+ public | word_similarity_dist_op                   | text, text                                                                | float4
+ public | word_similarity_op                        | text, text                                                                | bool
+(71 rows)
+

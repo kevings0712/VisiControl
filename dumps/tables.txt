@@ -1,0 +1,10 @@
+                                          List of relations
+ Schema |     Name      | Type  |     Owner      | Persistence | Access method |  Size  | Description 
+--------+---------------+-------+----------------+-------------+---------------+--------+-------------
+ public | inmates       | table | visictrl_admin | permanent   | heap          | 16 kB  | 
+ public | notifications | table | visictrl_admin | permanent   | heap          | 16 kB  | 
+ public | user_inmates  | table | visictrl_admin | permanent   | heap          | 16 kB  | 
+ public | users         | table | visictrl_admin | permanent   | heap          | 136 kB | 
+ public | visits        | table | visictrl_admin | permanent   | heap          | 16 kB  | 
+(5 rows)
+

@@ -21,6 +21,50 @@ const formSchema = z.object({
 
 type MeResp = { ok: boolean; user?: { id: string; role: string } };
 
+// ---- NUEVOS TIPOS Y HELPERS PARA HORARIOS ----
+
+type DayVisit = {
+  id: string;
+  visit_date: string;
+  visit_hour: string;
+  status: string;
+  duration_minutes?: number | null;
+};
+
+type BusyInterval = { start: number; end: number };
+
+// Slots cada 30 minutos desde 08:00 hasta 16:30 (último inicio posible)
+const SLOT_MINUTES: number[] = [];
+for (let t = 8 * 60; t <= 16 * 60 + 30; t += 30) {
+  SLOT_MINUTES.push(t);
+}
+
+function minutesToLabel(total: number): string {
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function isSlotDisabled(
+  totalMinutes: number,
+  duration: number,
+  busy: BusyInterval[]
+): boolean {
+  if (!duration) return true;
+
+  const start = totalMinutes;
+  const end = start + duration;
+
+  const MIN_START = 8 * 60; // 08:00
+  const MAX_END = 17 * 60; // 17:00
+
+  // fuera de rango
+  if (start < MIN_START || end > MAX_END) return true;
+
+  // se solapa con algún intervalo ocupado
+  return busy.some((b) => start < b.end && end > b.start);
+}
+
 export default function VisitsPage() {
   const nav = useNavigate();
   const [searchParams] = useSearchParams();
@@ -40,6 +84,10 @@ export default function VisitsPage() {
   const [apiError, setApiError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
 
+  // NUEVO: duración seleccionada y horarios ocupados
+  const [duration, setDuration] = useState<number>(60); // 1 hora por defecto
+  const [busyIntervals, setBusyIntervals] = useState<BusyInterval[]>([]);
+
   // Cargar rol + opciones de internos (todos si es ADMIN, propios si es USER)
   useEffect(() => {
     let cancel = false;
@@ -48,7 +96,9 @@ export default function VisitsPage() {
         setLoadingInmates(true);
         // 1) rol
         const me = await api.get<MeResp>("/auth/me");
-        const r = (me?.user?.role === "ADMIN" ? "ADMIN" : "USER") as "ADMIN" | "USER";
+        const r = (me?.user?.role === "ADMIN" ? "ADMIN" : "USER") as
+          | "ADMIN"
+          | "USER";
         if (!cancel) setRole(r);
 
         // 2) cargar internos según rol
@@ -88,6 +138,48 @@ export default function VisitsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingInmates, inmates]);
 
+// Cargar horarios ocupados cuando cambia la fecha o el interno
+useEffect(() => {
+  if (!form.visit_date || !form.inmate_id) {
+    setBusyIntervals([]);
+    return;
+  }
+
+  let cancel = false;
+
+  (async () => {
+    try {
+      const res = await api.get<{ ok: boolean; visits: DayVisit[] }>(
+        `/visits/slots?date=${form.visit_date}&inmate_id=${form.inmate_id}`
+      );
+
+      const rows = (res?.visits || []).filter((v) =>
+        ["PENDING", "APPROVED"].includes((v.status || "").toUpperCase())
+      );
+
+      const intervals: BusyInterval[] = rows.map((v) => {
+        const [hs, ms] = String(v.visit_hour).split(":");
+        const h = Number.parseInt(hs, 10);
+        const m = Number.parseInt(ms || "0", 10);
+        const start = h * 60 + m;
+        const dur = v.duration_minutes ?? 60;
+        const end = start + dur;
+        return { start, end };
+      });
+
+      if (!cancel) setBusyIntervals(intervals);
+    } catch (e) {
+      console.error("Error cargando horarios ocupados", e);
+      if (!cancel) setBusyIntervals([]);
+    }
+  })();
+
+  return () => {
+    cancel = true;
+  };
+}, [form.visit_date, form.inmate_id]);
+
+
   function onChange<K extends keyof VisitForm>(key: K, value: VisitForm[K]) {
     setForm((f) => ({ ...f, [key]: value }));
     setFormError(null);
@@ -116,6 +208,7 @@ export default function VisitsPage() {
         inmate_id: parsed.data.inmate_id,
         visit_date: parsed.data.visit_date,
         visit_hour,
+        duration_minutes: duration, // NUEVO: enviamos duración al backend
         notes: parsed.data.notes ?? null,
       });
 
@@ -126,6 +219,8 @@ export default function VisitsPage() {
         visit_hour: "",
         notes: "",
       });
+      setDuration(60);
+      setBusyIntervals([]);
     } catch (err: any) {
       setApiError(err?.message ?? "Error creando visita");
     }
@@ -166,7 +261,8 @@ export default function VisitsPage() {
 
           <form className="row" onSubmit={onSubmit}>
             <label className="vc-col-span-2">
-              Interno {isAdmin && <span style={{ color: "#64748b" }}>(Admin)</span>}
+              Interno{" "}
+              {isAdmin && <span style={{ color: "#64748b" }}>(Admin)</span>}
               <select
                 className="input-light"
                 disabled={loadingInmates}
@@ -176,7 +272,9 @@ export default function VisitsPage() {
                 {loadingInmates && <option>Cargando…</option>}
                 {!loadingInmates && !inmates.length && (
                   <option value="">
-                    {isAdmin ? "No hay internos" : "No tienes internos autorizados"}
+                    {isAdmin
+                      ? "No hay internos"
+                      : "No tienes internos autorizados"}
                   </option>
                 )}
                 {!loadingInmates &&
@@ -199,15 +297,76 @@ export default function VisitsPage() {
               />
             </label>
 
+            {/* NUEVO: duración + selector de horario en bloques de 30 min */}
             <label>
-              Hora
-              <input
+              Duración
+              <select
                 className="input-light"
-                type="time"
-                value={form.visit_hour}
-                onChange={(e) => onChange("visit_hour", e.target.value)}
-              />
+                value={duration}
+                onChange={(e) => setDuration(Number(e.target.value))}
+              >
+                <option value={30}>30 minutos</option>
+                <option value={60}>1 hora</option>
+                <option value={90}>1 hora 30</option>
+                <option value={120}>2 horas (máximo)</option>
+              </select>
             </label>
+
+            <div className="vc-col-span-2" style={{ marginTop: 8 }}>
+              <label>Horario de inicio</label>
+              {!form.visit_date && (
+                <p style={{ fontSize: 12, color: "#64748b" }}>
+                  Primero selecciona la fecha.
+                </p>
+              )}
+
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 6,
+                  marginTop: 6,
+                }}
+              >
+                {SLOT_MINUTES.map((total) => {
+                  const label = minutesToLabel(total); // "08:00", "08:30", etc.
+                  const disabled =
+                    !form.visit_date ||
+                    isSlotDisabled(total, duration, busyIntervals);
+                  const isSelected = form.visit_hour === label;
+
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() =>
+                        !disabled && onChange("visit_hour", label)
+                      }
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        border: "1px solid #cbd5f5",
+                        fontSize: 12,
+                        cursor: disabled ? "not-allowed" : "pointer",
+                        backgroundColor: isSelected
+                          ? "#0f766e"
+                          : disabled
+                          ? "#e5e7eb"
+                          : "#ffffff",
+                        color: disabled
+                          ? "#9ca3af"
+                          : isSelected
+                          ? "#ffffff"
+                          : "#0f172a",
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
             <label className="vc-col-span-2">
               Notes (opcional)

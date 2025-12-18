@@ -1,3 +1,4 @@
+// src/frontend/src/pages/NotificationsPage.tsx
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/client";
@@ -17,6 +18,7 @@ type NotifMeta = {
   visit_date?: string;   // "YYYY-MM-DD" o ISO
   visit_hour?: string;   // "HH:mm" o "HH:mm:ss"
   status?: string;
+  status_label?: string; // viene del backend en español
   old_date?: string;
   old_hour?: string;
   new_date?: string;
@@ -25,7 +27,7 @@ type NotifMeta = {
 
 type Notif = {
   id: string;
-  visit_id?: string | null;     // 👈 también tomo el top-level por si acaso
+  visit_id?: string | null;
   kind: NotifKind;
   title: string;
   body: string;
@@ -53,12 +55,10 @@ const df = new Intl.DateTimeFormat("es-EC", {
 
 function parseDateSmart(date?: string) {
   if (!date) return undefined;
-  // Si ya viene ISO, confío en Date; si es "YYYY-MM-DD", construyo a medianoche local.
   if (date.includes("T")) {
     const d = new Date(date);
     return isNaN(+d) ? undefined : d;
   }
-  // yyyy-mm-dd
   const d = new Date(`${date}T00:00:00`);
   return isNaN(+d) ? undefined : d;
 }
@@ -76,6 +76,16 @@ function composeDate(date?: string, hour?: string) {
 function fmtWhen(date?: string, hour?: string) {
   const d = composeDate(date, hour);
   return d ? df.format(d) : undefined;
+}
+
+function formatStatusLabel(status?: string | null): string | null {
+  if (!status) return null;
+  const s = status.toUpperCase();
+  if (s === "PENDING") return "Pendiente";
+  if (s === "APPROVED") return "Aprobada";
+  if (s === "REJECTED") return "Rechazada";
+  if (s === "CANCELED" || s === "CANCELLED") return "Cancelada";
+  return status;
 }
 
 const iconFor = (k: NotifKind) =>
@@ -118,15 +128,38 @@ export default function NotificationsPage() {
   }
 
   async function markAllRead() {
-    const ids = items.filter(i => !i.is_read).map(i => i.id);
+    const ids = items.filter((i) => !i.is_read).map((i) => i.id);
     if (!ids.length) return;
     setMarking(true);
     try {
       await api.post("/notifications/mark-read", { ids });
       window.dispatchEvent(new Event("notif:changed"));
-      setItems(prev => prev.map(i => (ids.includes(i.id) ? { ...i, is_read: true } : i)));
+      setItems((prev) =>
+        prev.map((i) => (ids.includes(i.id) ? { ...i, is_read: true } : i))
+      );
     } finally {
       setMarking(false);
+    }
+  }
+
+  // 🔹 Nueva: marcar una sola notificación como leída
+  async function markOneRead(id: string) {
+    const target = items.find((n) => n.id === id);
+    if (!target || target.is_read) return; // nada que hacer
+
+    // optimista en UI
+    setItems((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
+    );
+
+    try {
+      await api.post("/notifications/mark-read", { ids: [id] });
+      window.dispatchEvent(new Event("notif:changed"));
+    } catch {
+      // si falla, revertimos
+      setItems((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, is_read: false } : n))
+      );
     }
   }
 
@@ -140,11 +173,18 @@ export default function NotificationsPage() {
   return (
     <div className="app-light">
       <div className="container">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "10px 0 14px" }}>
+        {/* HEADER RESPONSIVE */}
+        <div className="page-header">
           <h1 className="h1">Notificaciones</h1>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn-outline" onClick={() => nav("/dashboard")}>Volver</button>
-            <button className="btn-outline" onClick={markAllRead} disabled={marking}>
+          <div className="page-header-actions">
+            <button className="btn-outline" onClick={() => nav("/dashboard")}>
+              Volver
+            </button>
+            <button
+              className="btn-outline"
+              onClick={markAllRead}
+              disabled={marking}
+            >
               {marking ? "Marcando…" : "Marcar todas como leídas"}
             </button>
           </div>
@@ -154,44 +194,70 @@ export default function NotificationsPage() {
         {err && <p style={{ color: "#b91c1c" }}>{err}</p>}
         {!loading && !items.length && <p>No tienes notificaciones.</p>}
 
-        {items.map(n => {
+        {items.map((n) => {
           const m = n.meta || {};
           const vId = n.visit_id ?? m.visit_id;
           const when = fmtWhen(m.visit_date, m.visit_hour);
+
+          const statusLabel =
+            m.status_label || formatStatusLabel(m.status || null);
+
           const headerLine = [
             vId ? `#${shortId(vId)}` : null,
             when || null,
-            m.status ? `Estado: ${m.status}` : null,
-          ].filter(Boolean).join(" • ");
+            statusLabel ? `Estado: ${statusLabel}` : null,
+          ]
+            .filter(Boolean)
+            .join(" • ");
 
           const before = fmtWhen(m.old_date, m.old_hour);
-          const after  = fmtWhen(m.new_date, m.new_hour);
+          const after = fmtWhen(m.new_date, m.new_hour);
           const reprogramLine =
             n.kind === "VISIT_UPDATED" && (before || after)
-              ? `${before ? `Antes: ${before}` : ""}${before && after ? "  →  " : ""}${after ? `Ahora: ${after}` : ""}`
+              ? `${before ? `Antes: ${before}` : ""}${
+                  before && after ? "  →  " : ""
+                }${after ? `Ahora: ${after}` : ""}`
               : "";
 
           return (
             <article
               key={n.id}
               className="notif-card"
+              onClick={() => markOneRead(n.id)}
               style={{
-                borderLeft: n.is_read ? "6px solid transparent" : "6px solid #cf4444",
-                opacity: n.is_read ? .85 : 1,
-                background: "#fff",
-                border: "1px solid #e5e7eb",
-                borderRadius: 16,
-                padding: 14,
-                marginBottom: 12,
-                boxShadow: "0 10px 30px rgba(0,0,0,.06)",
+                borderLeft: n.is_read
+                  ? "6px solid transparent"
+                  : "6px solid #cf4444",
+                opacity: n.is_read ? 0.85 : 1,
+                cursor: "pointer",
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span aria-hidden style={{ fontSize: 22 }}>{iconFor(n.kind)}</span>
-                <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <span aria-hidden style={{ fontSize: 22 }}>
+                  {iconFor(n.kind)}
+                </span>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 2,
+                    flex: 1,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                    }}
+                  >
                     <h3 style={{ margin: 0 }}>{n.title}</h3>
-                    {!n.is_read && <span className="badge">Nueva</span>}
+
+                    {!n.is_read && (
+                      <span className="notif-label">Nueva</span>
+                    )}
+
                     <span
                       style={{
                         marginLeft: "auto",
@@ -209,7 +275,13 @@ export default function NotificationsPage() {
                   </div>
 
                   {headerLine && (
-                    <div style={{ color: "#0f172a", fontSize: 14, fontWeight: 600 }}>
+                    <div
+                      style={{
+                        color: "#0f172a",
+                        fontSize: 14,
+                        fontWeight: 600,
+                      }}
+                    >
                       {headerLine}
                     </div>
                   )}
@@ -224,22 +296,37 @@ export default function NotificationsPage() {
                 </div>
               </div>
 
-              <p style={{ margin: "8px 0 6px 0", color: "#475569" }}>{n.body}</p>
+              <p
+                style={{
+                  margin: "8px 0 6px 0",
+                  color: "#475569",
+                }}
+              >
+                {n.body}
+              </p>
 
               {reprogramLine && (
-                <div style={{
-                  background: "#f8fafc",
-                  border: "1px dashed #e2e8f0",
-                  borderRadius: 12,
-                  padding: "8px 10px",
-                  color: "#334155",
-                  fontSize: 14,
-                }}>
+                <div
+                  style={{
+                    background: "#f8fafc",
+                    border: "1px dashed #e2e8f0",
+                    borderRadius: 12,
+                    padding: "8px 10px",
+                    color: "#334155",
+                    fontSize: 14,
+                  }}
+                >
                   {reprogramLine}
                 </div>
               )}
 
-              <div style={{ color: "#64748b", fontSize: 13, marginTop: 8 }}>
+              <div
+                style={{
+                  color: "#64748b",
+                  fontSize: 13,
+                  marginTop: 8,
+                }}
+              >
                 {timeago(n.created_at)}
               </div>
             </article>

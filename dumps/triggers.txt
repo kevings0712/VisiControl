@@ -1,0 +1,9 @@
+  table  |     trigger_name     | action_timing | event  
+---------+----------------------+---------------+--------
+ inmates | trg_inmates_updated  | BEFORE        | UPDATE
+ users   | trg_users_updated_at | BEFORE        | UPDATE
+ visits  | trg_visits_auth      | BEFORE        | INSERT
+ visits  | trg_visits_auth      | BEFORE        | UPDATE
+ visits  | trg_visits_short     | BEFORE        | INSERT
+(5 rows)
+
