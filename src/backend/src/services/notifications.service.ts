@@ -1,5 +1,7 @@
+// src/backend/src/services/notifications.service.ts
 import { getPool } from "../config/db";
 import { ssePush } from "../utils/sse";
+import { sendVisitReminderEmail } from "../lib/mailer";
 
 export type NotificationKind =
   | "VISIT_CREATED"
@@ -46,7 +48,12 @@ export async function createNotification(dto: CreateNotificationDTO) {
     dto.meta ?? null,
   ]);
   const notif = rows[0] as Notification;
-  if (notif?.user_id) ssePush(notif.user_id, { type: "notification", item: notif });
+
+  // Empujar por SSE al frontend
+  if (notif?.user_id) {
+    ssePush(notif.user_id, { type: "notification", item: notif });
+  }
+
   return notif;
 }
 
@@ -57,14 +64,12 @@ export async function listNotifications(params: {
 }) {
   const db = getPool();
   const wh: string[] = ["user_id = $1"];
-  const vals: any[] = [params.userId];
 
   if (params.onlyUnread) wh.push("is_read = false");
 
   const where = "WHERE " + wh.join(" AND ");
   const limit = Math.min(params.limit ?? 50, 200);
 
-  // LIMIT parametrizado
   const q = `
     SELECT *
     FROM notifications
@@ -99,25 +104,77 @@ export async function countUnread(userId: string) {
   return rows[0]?.n ?? 0;
 }
 
+/**
+ * upsertTomorrowReminders
+ * - Busca visitas para mañana (PENDING / APPROVED) de usuarios que tienen notify_email = true.
+ * - Solo toma las visitas que todavía NO tienen una notificación de tipo VISIT_REMINDER.
+ * - Crea la notificación y envía un correo de recordatorio.
+ */
 export async function upsertTomorrowReminders() {
   const db = getPool();
+
   const q = `
-    INSERT INTO notifications (user_id, visit_id, kind, title, body, meta)
     SELECT
-      v.created_by AS user_id,
-      v.id         AS visit_id,
-      'VISIT_REMINDER',
-      'Recordatorio de visita',
-      'Recuerda que mañana tienes una visita programada.',
-      jsonb_build_object('visit_date', v.visit_date, 'visit_hour', v.visit_hour)
+      v.id           AS visit_id,
+      v.visit_date   AS visit_date,
+      v.visit_hour   AS visit_hour,
+      v.inmate_name  AS inmate_name,
+      v.created_by   AS user_id,
+      u.email        AS user_email,
+      u.name         AS user_name
     FROM visits v
     JOIN users u ON u.id = v.created_by
     WHERE v.created_by IS NOT NULL
       AND u.notify_email = true
       AND v.status IN ('PENDING','APPROVED')
       AND v.visit_date = (CURRENT_DATE + INTERVAL '1 day')::date
-    ON CONFLICT (user_id, visit_id, kind) DO NOTHING
+      AND NOT EXISTS (
+        SELECT 1
+        FROM notifications n
+        WHERE n.user_id = v.created_by
+          AND n.visit_id = v.id
+          AND n.kind = 'VISIT_REMINDER'
+      )
   `;
-  await db.query(q);
-  return { ok: true };
+
+  const { rows } = await db.query(q);
+
+  for (const row of rows) {
+    // 1) Crear notificación interna
+    await createNotification({
+      user_id: row.user_id,
+      visit_id: row.visit_id,
+      kind: "VISIT_REMINDER",
+      title: "Recordatorio de visita",
+      body: "Recuerda que mañana tienes una visita programada.",
+      meta: {
+        visit_date: row.visit_date,
+        visit_hour: row.visit_hour,
+        inmate_name: row.inmate_name,
+      },
+    });
+
+    // 2) Enviar correo (si el usuario tiene email)
+    if (row.user_email) {
+      const visitDate =
+        row.visit_date instanceof Date
+          ? row.visit_date.toISOString().slice(0, 10)
+          : String(row.visit_date);
+
+      const visitHour =
+        typeof row.visit_hour === "string"
+          ? row.visit_hour.slice(0, 5)
+          : String(row.visit_hour);
+
+      await sendVisitReminderEmail({
+        to: row.user_email,
+        userName: row.user_name,
+        inmateName: row.inmate_name,
+        visitDate,
+        visitHour,
+      });
+    }
+  }
+
+  return { ok: true, count: rows.length };
 }

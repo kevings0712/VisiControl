@@ -12,5 +12,6 @@ r.get('/me', requireAuth, getMe);
 r.post('/forgot-password', postForgotPassword);
 r.patch('/me', requireAuth, patchMe);
 r.post('/reset-password', postResetPassword);
+r.post('/change-password', requireAuth, postChangePassword)
 
 export default r;

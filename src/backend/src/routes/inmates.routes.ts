@@ -7,21 +7,53 @@ import {
   adminGetInmateCtrl,
   adminCreateInmateCtrl,
   adminUpdateInmateCtrl,
+  adminDeleteInmateCtrl,
   adminAuthorizeUserCtrl,
   adminUnauthorizeUserCtrl,
+  adminListInmateUsersCtrl,
+  adminSearchUsersCtrl,
 } from "../controllers/inmates.controller";
 
 const r = Router();
 
-// Usuario autenticado: ver sus internos
+/* ===== Usuario autenticado: ver sus internos ===== */
 r.get("/my", requireAuth, getMyInmatesCtrl);
 
-// ADMIN: CRUD + autorizaciones (siempre requireAuth antes de requireAdmin)
-r.get("/",               requireAuth, requireAdmin, adminListInmatesCtrl);
-r.get("/:id",            requireAuth, requireAdmin, adminGetInmateCtrl);
-r.post("/",              requireAuth, requireAdmin, adminCreateInmateCtrl);
-r.put("/:id",            requireAuth, requireAdmin, adminUpdateInmateCtrl);
-r.post("/:id/authorize", requireAuth, requireAdmin, adminAuthorizeUserCtrl);
-r.delete("/:id/authorize/:userId",requireAuth, requireAdmin, adminUnauthorizeUserCtrl);
+/* ===== Admin: búsqueda de usuarios para relación internos–usuarios ===== */
+r.get(
+  "/admin/users/search",
+  requireAuth,
+  requireAdmin,
+  adminSearchUsersCtrl
+);
+
+/* ===== Admin: relación internos–usuarios ===== */
+r.get(
+  "/admin/:inmateId/users",
+  requireAuth,
+  requireAdmin,
+  adminListInmateUsersCtrl
+);
+
+r.post(
+  "/admin/:inmateId/users",
+  requireAuth,
+  requireAdmin,
+  adminAuthorizeUserCtrl
+);
+
+r.delete(
+  "/admin/:inmateId/users/:userId",
+  requireAuth,
+  requireAdmin,
+  adminUnauthorizeUserCtrl
+);
+
+/* ===== Admin: CRUD de internos ===== */
+r.get("/", requireAuth, requireAdmin, adminListInmatesCtrl);
+r.get("/:id", requireAuth, requireAdmin, adminGetInmateCtrl);
+r.post("/", requireAuth, requireAdmin, adminCreateInmateCtrl);
+r.put("/:id", requireAuth, requireAdmin, adminUpdateInmateCtrl);
+r.delete("/:id", requireAuth, requireAdmin, adminDeleteInmateCtrl);
 
 export default r;
